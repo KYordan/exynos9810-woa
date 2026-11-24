@@ -1,0 +1,69 @@
+name: S10e UFS driver (B2LUFS)
+
+# Galaxy S10e (Exynos 9820) dual boot: the StorPort miniport Windows boots from. Built from orhunnx/beyond2lte-uefi
+# at a pinned commit. That repository has no license file, so its source is cloned here, never committed, and the
+# result is uploaded only as an encrypted archive (set the B2L_ARTIFACT_PASSWORD secret, 12+ characters).
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [s10e]
+    paths:
+      - 'drivers/Exynos9820Ufs/**'
+      - '.github/workflows/build-s10e-ufs.yml'
+
+env:
+  B2LUFS_REPO: https://github.com/orhunnx/beyond2lte-uefi.git
+  B2LUFS_COMMIT: 42412d0   # the overlay commit the S10e firmware is built from (ios-s10e UEFI_OVERLAY_COMMIT)
+
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - name: Artifact password present
+        shell: pwsh
+        env:
+          B2L_ARTIFACT_PASSWORD: ${{ secrets.B2L_ARTIFACT_PASSWORD }}
+        run: |
+          if ("$env:B2L_ARTIFACT_PASSWORD".Length -lt 12) {
+            Write-Output "::error::Set the B2L_ARTIFACT_PASSWORD repository secret (12+ characters): the driver is built from unlicensed upstream code and is only uploaded encrypted."
+            exit 1
+          }
+
+      - uses: actions/checkout@v4
+
+      - name: Upstream B2LUFS source (pinned)
+        shell: pwsh
+        run: |
+          git clone -q $env:B2LUFS_REPO upstream
+          git -C upstream checkout -q --detach $env:B2LUFS_COMMIT
+          git -C upstream log -1 --format='%H %ad %an' --date=short
+
+      - name: Build b2lufs.sys (upstream build-b2lufs.ps1, MSVC ARM64 + WDK)
+        shell: pwsh
+        run: ./upstream/windows/b2lufs/build-b2lufs.ps1 -ProjectRoot "$PWD/upstream" -OutDir "$PWD/out/build"
+
+      - name: Boot-start package, catalog, test signature
+        shell: pwsh
+        run: >
+          ./drivers/Exynos9820Ufs/make-package.ps1
+          -Template upstream/windows/b2lufs/b2lufs.inf.in
+          -Sys out/build/b2lufs.sys -OutDir out/b2lufs
+
+      - name: Encrypt
+        shell: pwsh
+        env:
+          B2L_ARTIFACT_PASSWORD: ${{ secrets.B2L_ARTIFACT_PASSWORD }}
+        run: |
+          git -C upstream rev-parse HEAD | Out-File -Encoding ascii out/b2lufs/UPSTREAM_COMMIT.txt
+          7z a -t7z -mhe=on "-p$env:B2L_ARTIFACT_PASSWORD" out/s10e-b2lufs.7z ./out/b2lufs/* | Out-Null
+          7z t "-p$env:B2L_ARTIFACT_PASSWORD" out/s10e-b2lufs.7z | Out-Null
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Get-Item out/s10e-b2lufs.7z | Select-Object Name, Length
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: s10e-b2lufs-${{ github.run_number }}
+          path: out/s10e-b2lufs.7z
+          if-no-files-found: error
+          retention-days: 30
