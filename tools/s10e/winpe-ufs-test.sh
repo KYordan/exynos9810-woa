@@ -55,14 +55,18 @@ if [[ $mode == write ]]; then
   printf '%s\r\n' 'select disk 0' 'select partition 32' 'detail partition' > "$work/b2l/detail32.txt"
   # Run 6: "The device is not ready" at 0 %: mountvol /N leaves every volume Offline, and diskpart cannot format an
   # offline volume. Bring only this partition's volume online first (as upstream startnet.cmd does for CACHE).
-  printf '%s\r\n' 'select disk 0' 'select partition 32' 'online volume noerr' 'format fs=ntfs quick label=WINTEST' \
-    'assign letter=W' > "$work/b2l/format32.txt"
+  # Run 7: online ok, then format stopped at 0 % with "Incorrect function": B2LUFS completed some request with
+  # SRB_STATUS_INVALID_REQUEST (format's extra commands, not plain WRITE(10/16), which the driver passes through).
+  # Run 8 tests the path an installed Windows uses: sda32 is formatted NTFS beforehand from TWRP (mkfs.ntfs) and
+  # WinPE only mounts it and copies files with ordinary writes. The label is checked before anything is copied.
+  printf '%s\r\n' 'select disk 0' 'select partition 32' 'online volume noerr' 'assign letter=W' \
+    > "$work/b2l/format32.txt"
   printf '%s\r\n' \
     '@echo off' \
     'mode con: cols=96 lines=140 >nul 2>&1' \
     'wpeinit' \
     'mountvol /N >nul 2>&1' \
-    'echo ===== S10e B2LUFS write test, run 5: windows partition only =====' \
+    'echo ===== S10e B2LUFS write test, run 8: copy to the windows partition only =====' \
     'pnputil /add-driver X:\b2l\b2lufs.inf /install >nul' \
     'pnputil /scan-devices >nul' \
     'ping -n 8 127.0.0.1 >nul' \
@@ -72,6 +76,9 @@ if [[ $mode == write ]]; then
     'echo guard ok: partition 32 starts at byte 51760857088 (windows, sda32)' \
     'diskpart /s X:\b2l\format32.txt | find /v "Microsoft" | find /v "Copyright"' \
     'if not exist W:\ goto noformat' \
+    'vol W: | find "WINTEST" >nul' \
+    'if errorlevel 1 goto nolabel' \
+    'echo W: is the WINTEST NTFS volume' \
     'robocopy X:\Windows\System32\drivers W:\b2ltest\drivers /E /NFL /NDL /NJH /R:0 /W:0' \
     'robocopy X:\sources W:\b2ltest\sources /E /NFL /NDL /NJH /R:0 /W:0' \
     'dir /s W:\b2ltest | find "File(s)"' \
@@ -82,8 +89,13 @@ if [[ $mode == write ]]; then
     'echo GUARD FAILED: partition 32 is not the windows partition - NOTHING WAS WRITTEN' \
     'type X:\b2l\detail32.out' \
     'goto end' \
+    ':nolabel' \
+    'echo W: IS NOT LABELLED WINTEST - nothing copied' \
+    'vol W:' \
+    'mountvol W: /P' \
+    'goto end' \
     ':noformat' \
-    'echo FORMAT OR ASSIGN FAILED' \
+    'echo ONLINE OR ASSIGN FAILED' \
     ':end' \
     'echo ===== done: take a photo, then restart to TWRP =====' > "$work/b2l/b2l-test.cmd"
 fi
