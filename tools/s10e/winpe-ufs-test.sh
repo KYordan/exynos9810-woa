@@ -65,9 +65,9 @@ if [[ $mode == write ]]; then
     'pnputil /scan-devices >nul' \
     'ping -n 8 127.0.0.1 >nul' \
     'diskpart /s X:\b2l\detail32.txt > X:\b2l\detail32.out' \
-    'find "51761881088" X:\b2l\detail32.out >nul' \
+    'find "51760857088" X:\b2l\detail32.out >nul' \
     'if errorlevel 1 goto guard' \
-    'echo guard ok: partition 32 starts at byte 51761881088 (windows, sda32)' \
+    'echo guard ok: partition 32 starts at byte 51760857088 (windows, sda32)' \
     'diskpart /s X:\b2l\format32.txt | find /v "Microsoft" | find /v "Copyright"' \
     'if not exist W:\ goto noformat' \
     'robocopy X:\Windows\System32\drivers W:\b2ltest\drivers /E /NFL /NDL /NJH /R:0 /W:0' \
