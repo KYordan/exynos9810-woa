@@ -21,18 +21,27 @@ work=$(mktemp -d); trap 'rm -rf "$work"' EXIT
 
 mkdir -p "$work/b2l"
 cp "$drivers"/b2lufs.inf "$drivers"/b2lufs.sys "$drivers"/b2lufs.cat "$drivers"/b2lufs-test.cer "$work/b2l/"
-printf '%s\r\n' \
-  'list disk' 'select disk 0' 'detail disk' 'list partition' 'list volume' > "$work/b2l/list.txt"
+printf '%s\r\n' 'list disk' 'list volume' > "$work/b2l/list.txt"
+# Run 1 (drvload): "Successfully loaded", yet no disk. The Setup image has no certutil; test signing alone admits
+# the driver. Like upstream startnet.cmd: pnputil /add-driver /install + /scan-devices, automount off (mountvol /N),
+# then the device node's status/problem, the service, StorPort's Operational events (B2LUFS logs there) and diskpart.
 printf '%s\r\n' \
   '@echo off' \
+  'mode con: cols=96 lines=140 >nul 2>&1' \
   'wpeinit' \
-  'echo ===== S10e B2LUFS read-only test =====' \
-  'certutil -f -addstore Root X:\b2l\b2lufs-test.cer >nul' \
-  'certutil -f -addstore TrustedPublisher X:\b2l\b2lufs-test.cer >nul' \
-  'drvload X:\b2l\b2lufs.inf' \
-  'echo drvload exit code %errorlevel%' \
-  'ping -n 6 127.0.0.1 >nul' \
-  'diskpart /s X:\b2l\list.txt' \
+  'mountvol /N >nul 2>&1' \
+  'echo ===== S10e B2LUFS read-only test, run 2 =====' \
+  'pnputil /add-driver X:\b2l\b2lufs.inf /install | find /v "Microsoft PnP"' \
+  'pnputil /scan-devices >nul' \
+  'ping -n 8 127.0.0.1 >nul' \
+  'echo ----- UFS0 device node' \
+  'pnputil /enum-devices /instanceid "ACPI\SMSN9820\0" /drivers' \
+  'echo ----- b2lufs service' \
+  'reg query HKLM\SYSTEM\CurrentControlSet\Services\b2lufs /v Start' \
+  'echo ----- StorPort events, newest first' \
+  'wevtutil qe Microsoft-Windows-StorPort/Operational /c:5 /rd:true /f:text | find /i /v "Keyword"' \
+  'echo ----- diskpart' \
+  'diskpart /s X:\b2l\list.txt | find /v "Microsoft" | find /v "Copyright"' \
   'echo ===== done: take a photo =====' > "$work/b2l/b2l-test.cmd"
 printf '%s\r\n' '[LaunchApps]' '%SYSTEMROOT%\System32\cmd.exe, /k X:\b2l\b2l-test.cmd' > "$work/winpeshl.ini"
 
