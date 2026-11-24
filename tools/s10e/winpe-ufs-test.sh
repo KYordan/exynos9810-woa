@@ -53,8 +53,10 @@ if [[ $mode == write ]]; then
   # files of this very image (X:\Windows\System32\drivers, X:\sources): TWRP compares them with wimlib's copies.
   # mountvol /P flushes and dismounts W: so a forced restart loses nothing.
   printf '%s\r\n' 'select disk 0' 'select partition 32' 'detail partition' > "$work/b2l/detail32.txt"
-  printf '%s\r\n' 'select disk 0' 'select partition 32' 'format fs=ntfs quick label=WINTEST' 'assign letter=W' \
-    > "$work/b2l/format32.txt"
+  # Run 6: "The device is not ready" at 0 %: mountvol /N leaves every volume Offline, and diskpart cannot format an
+  # offline volume. Bring only this partition's volume online first (as upstream startnet.cmd does for CACHE).
+  printf '%s\r\n' 'select disk 0' 'select partition 32' 'online volume noerr' 'format fs=ntfs quick label=WINTEST' \
+    'assign letter=W' > "$work/b2l/format32.txt"
   printf '%s\r\n' \
     '@echo off' \
     'mode con: cols=96 lines=140 >nul 2>&1' \
