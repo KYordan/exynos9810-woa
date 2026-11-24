@@ -30,7 +30,7 @@ printf '%s\r\n' \
   'mode con: cols=96 lines=140 >nul 2>&1' \
   'wpeinit' \
   'mountvol /N >nul 2>&1' \
-  'echo ===== S10e B2LUFS read-only test, run 2 =====' \
+  'echo ===== S10e B2LUFS read-only test, run 3 =====' \
   'pnputil /add-driver X:\b2l\b2lufs.inf /install | find /v "Microsoft PnP"' \
   'pnputil /scan-devices >nul' \
   'ping -n 8 127.0.0.1 >nul' \
@@ -38,8 +38,8 @@ printf '%s\r\n' \
   'pnputil /enum-devices /instanceid "ACPI\SMSN9820\0" /drivers' \
   'echo ----- b2lufs service' \
   'reg query HKLM\SYSTEM\CurrentControlSet\Services\b2lufs /v Start' \
-  'echo ----- StorPort events, newest first' \
-  'wevtutil qe Microsoft-Windows-StorPort/Operational /c:5 /rd:true /f:text | find /i /v "Keyword"' \
+  'echo ----- B2LUFS start snapshot (diagnostic build)' \
+  'reg query "HKLM\SYSTEM\CurrentControlSet\Enum\ACPI\SMSN9820\0\Device Parameters\B2LUFSDIAG" 2>nul || reg query "HKLM\SYSTEM\CurrentControlSet\Enum\ACPI\SMSN9820\0" /s /f B2LUFSDIAG /k' \
   'echo ----- diskpart' \
   'diskpart /s X:\b2l\list.txt | find /v "Microsoft" | find /v "Copyright"' \
   'echo ===== done: take a photo =====' > "$work/b2l/b2l-test.cmd"
