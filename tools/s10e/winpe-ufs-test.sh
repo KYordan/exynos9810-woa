@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # S10e dual boot: turn the WinPE on the phone's ESP into a read-only B2LUFS test.
 #
-#   winpe-ufs-test.sh ESP_STAGE DRIVER_DIR OUT_DIR
+#   winpe-ufs-test.sh ESP_STAGE DRIVER_DIR OUT_DIR [read|write]
+#
+# `write` replaces the read-only test with the guarded write test on the windows partition (see below).
 #
 # ESP_STAGE  the ESP tree copied from the Windows ISO (efi\, boot\boot.sdi, sources\boot.wim)
 # DRIVER_DIR the unpacked s10e-b2lufs artifact (b2lufs.inf/.sys/.cat, b2lufs-test.cer)
@@ -13,7 +15,7 @@
 # testsigning (element 16000049), without which the test-signed driver would not load. Runs in WSL as a normal
 # user: wimlib-imagex (wimtools) and python3-hivex, no DISM, no administrator.
 set -euo pipefail
-stage=${1:?ESP stage}; drivers=${2:?driver dir}; out=${3:?out dir}
+stage=${1:?ESP stage}; drivers=${2:?driver dir}; out=${3:?out dir}; mode=${4:-read}   # read | write
 for f in sources/boot.wim efi/microsoft/boot/bcd; do test -f "$stage/$f" || { echo "missing $stage/$f" >&2; exit 1; }; done
 for f in b2lufs.inf b2lufs.sys b2lufs.cat b2lufs-test.cer; do test -f "$drivers/$f" || { echo "missing $drivers/$f" >&2; exit 1; }; done
 mkdir -p "$out/sources" "$out/efi/microsoft/boot"
@@ -43,6 +45,46 @@ printf '%s\r\n' \
   'echo ----- diskpart' \
   'diskpart /s X:\b2l\list.txt | find /v "Microsoft" | find /v "Copyright"' \
   'echo ===== done: take a photo =====' > "$work/b2l/b2l-test.cmd"
+
+if [[ $mode == write ]]; then
+  # Write test (run 5): the first writes through B2LUFS, to the empty `windows` partition only. diskpart numbers
+  # partitions in GPT entry order, so the guard checks that partition 32 starts at the byte offset of the GPT entry
+  # we created (LBA 12636928 x 4096) before anything is formatted; any other layout writes nothing. The payload is
+  # files of this very image (X:\Windows\System32\drivers, X:\sources): TWRP compares them with wimlib's copies.
+  # mountvol /P flushes and dismounts W: so a forced restart loses nothing.
+  printf '%s\r\n' 'select disk 0' 'select partition 32' 'detail partition' > "$work/b2l/detail32.txt"
+  printf '%s\r\n' 'select disk 0' 'select partition 32' 'format fs=ntfs quick label=WINTEST' 'assign letter=W' \
+    > "$work/b2l/format32.txt"
+  printf '%s\r\n' \
+    '@echo off' \
+    'mode con: cols=96 lines=140 >nul 2>&1' \
+    'wpeinit' \
+    'mountvol /N >nul 2>&1' \
+    'echo ===== S10e B2LUFS write test, run 5: windows partition only =====' \
+    'pnputil /add-driver X:\b2l\b2lufs.inf /install >nul' \
+    'pnputil /scan-devices >nul' \
+    'ping -n 8 127.0.0.1 >nul' \
+    'diskpart /s X:\b2l\detail32.txt > X:\b2l\detail32.out' \
+    'find "51761881088" X:\b2l\detail32.out >nul' \
+    'if errorlevel 1 goto guard' \
+    'echo guard ok: partition 32 starts at byte 51761881088 (windows, sda32)' \
+    'diskpart /s X:\b2l\format32.txt | find /v "Microsoft" | find /v "Copyright"' \
+    'if not exist W:\ goto noformat' \
+    'robocopy X:\Windows\System32\drivers W:\b2ltest\drivers /E /NFL /NDL /NJH /R:0 /W:0' \
+    'robocopy X:\sources W:\b2ltest\sources /E /NFL /NDL /NJH /R:0 /W:0' \
+    'dir /s W:\b2ltest | find "File(s)"' \
+    'mountvol W: /P' \
+    'echo W: flushed and dismounted' \
+    'goto end' \
+    ':guard' \
+    'echo GUARD FAILED: partition 32 is not the windows partition - NOTHING WAS WRITTEN' \
+    'type X:\b2l\detail32.out' \
+    'goto end' \
+    ':noformat' \
+    'echo FORMAT OR ASSIGN FAILED' \
+    ':end' \
+    'echo ===== done: take a photo, then restart to TWRP =====' > "$work/b2l/b2l-test.cmd"
+fi
 printf '%s\r\n' '[LaunchApps]' '%SYSTEMROOT%\System32\cmd.exe, /k X:\b2l\b2l-test.cmd' > "$work/winpeshl.ini"
 
 cp "$stage/sources/boot.wim" "$out/sources/boot.wim"
