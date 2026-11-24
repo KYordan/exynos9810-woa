@@ -39,10 +39,14 @@ jobs:
           git clone -q $env:B2LUFS_REPO upstream
           git -C upstream checkout -q --detach $env:B2LUFS_COMMIT
           git -C upstream log -1 --format='%H %ad %an' --date=short
+          Copy-Item upstream upstream-diag -Recurse
 
-      - name: Build b2lufs.sys (upstream build-b2lufs.ps1, MSVC ARM64 + WDK)
+      - name: Build b2lufs.sys (upstream build-b2lufs.ps1, MSVC ARM64 + WDK) with the 22621/22631 fix
         shell: pwsh
-        run: ./upstream/windows/b2lufs/build-b2lufs.ps1 -ProjectRoot "$PWD/upstream" -OutDir "$PWD/out/build"
+        run: |
+          python drivers/Exynos9820Ufs/diag_patch.py upstream/windows/b2lufs --compat-only
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          ./upstream/windows/b2lufs/build-b2lufs.ps1 -ProjectRoot "$PWD/upstream" -OutDir "$PWD/out/build"
 
       - name: Boot-start package, catalog, test signature
         shell: pwsh
@@ -54,7 +58,6 @@ jobs:
       - name: Diagnostic variant (start snapshot in the registry, drivers/Exynos9820Ufs/diag_patch.py)
         shell: pwsh
         run: |
-          Copy-Item upstream upstream-diag -Recurse
           python drivers/Exynos9820Ufs/diag_patch.py upstream-diag/windows/b2lufs
           if ($LASTEXITCODE -ne 0) { exit 1 }
           ./upstream-diag/windows/b2lufs/build-b2lufs.ps1 -ProjectRoot "$PWD/upstream-diag" -OutDir "$PWD/out/build-diag"

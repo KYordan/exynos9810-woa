@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Make a diagnostic B2LUFS build: record why the transport start fails instead of failing silently.
 
-    python diag_patch.py UPSTREAM/windows/b2lufs
+    python diag_patch.py UPSTREAM/windows/b2lufs [--compat-only]
+
+--compat-only applies only the Windows 22621/22631 compatibility fix (see compat()); the normal package uses it.
 
 On the S10e (first WinPE test, 2026-11-24) B2LUFS bound to ACPI\\SMSN9820\\0 but failed to start: Code 10,
 0xC00000C2 (HwInitialize returned FALSE). Upstream's B2LUfsStartTransport returns FALSE from several checks
@@ -29,11 +31,71 @@ def replace(text, old, new, name):
     return text.replace(old, new)
 
 
+def compat(storport):
+    """Run 3 (diagnostic build) still failed with 0xC00000C2 and wrote no start snapshot, so HwFindAdapter itself
+    refused. Its first step is StorPortSetFeatureList(StorportFeatureBusTypeUnitControl), a StorPort feature of
+    Windows 11 24H2+ (upstream tested 25H2); on 22621/22631 the call fails and upstream returns SP_RETURN_ERROR.
+    Without the feature StorPort only never asks the LUN bus type: keep going."""
+    s = storport.read_text()
+    s = replace(s, """    if (BusTypeFeatureStatus != STOR_STATUS_SUCCESS) {
+        return SP_RETURN_ERROR;
+    }""", """    /* S10e (22621/22631 StorPort): BusTypeUnitControl is a 24H2+ feature; its absence is not fatal. */
+    B2LUfsDiagWriteUlong(DeviceExtension, B2LUFS_DIAG_FEATURE_STATUS, BusTypeFeatureStatus);""", storport.name)
+    helper = """static UCHAR B2LUFS_DIAG_EARLY_KEY[] = "B2LUFSDIAG";
+static UCHAR B2LUFS_DIAG_FEATURE_STATUS[] = "FeatureStatus";
+static UCHAR B2LUFS_DIAG_FIND_FAILURE[] = "FindFailure";
+static UCHAR B2LUFS_DIAG_FIND_INDEX[] = "FindRangeIndex";
+static UCHAR B2LUFS_DIAG_FIND_COUNT[] = "FindRangeCount";
+static UCHAR B2LUFS_DIAG_FIND_BASE[] = "FindRangeBase";
+static UCHAR B2LUFS_DIAG_FIND_LENGTH[] = "FindRangeLength";
+static UCHAR B2LUFS_DIAG_FIND_FOUND[] = "FindFound";
+
+/* S10e: HwFindAdapter runs at PASSIVE_LEVEL, so its outcome can go straight to the device's registry key. */
+static VOID
+B2LUfsDiagWriteUlong(_In_ PVOID DeviceExtension, _In_ PUCHAR Name, _In_ ULONG Value)
+{
+    (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_DIAG_EARLY_KEY, Name, REG_DWORD, &Value, sizeof(Value));
+}
+
+static VOID
+B2LUfsLogFindFailure("""
+    s = replace(s, "static VOID\nB2LUfsLogFindFailure(", helper, storport.name)
+    s = replace(s, """    if (Suppress) {
+        return;
+    }
+
+    B2LUfsZeroMemory(&Data, sizeof(Data));""", """    if (Suppress) {
+        return;
+    }
+
+    B2LUfsDiagWriteUlong(DeviceExtension, B2LUFS_DIAG_FIND_FAILURE, (ULONG)Failure);
+    B2LUfsDiagWriteUlong(DeviceExtension, B2LUFS_DIAG_FIND_INDEX, RangeIndex);
+    B2LUfsDiagWriteUlong(DeviceExtension, B2LUFS_DIAG_FIND_COUNT,
+                         ConfigInfo != NULL ? ConfigInfo->NumberOfAccessRanges : MAXULONG);
+    B2LUfsDiagWriteUlong(DeviceExtension, B2LUFS_DIAG_FIND_BASE, (ULONG)RangeBase);
+    B2LUfsDiagWriteUlong(DeviceExtension, B2LUFS_DIAG_FIND_LENGTH, RangeLength);
+
+    B2LUfsZeroMemory(&Data, sizeof(Data));""", storport.name)
+    s = replace(s, """    Adapter->Signature = B2LUFS_ADAPTER_SIGNATURE;
+    Adapter->AdapterRemoved = FALSE;
+    return SP_RETURN_FOUND;""", """    Adapter->Signature = B2LUFS_ADAPTER_SIGNATURE;
+    Adapter->AdapterRemoved = FALSE;
+    B2LUfsDiagWriteUlong(DeviceExtension, B2LUFS_DIAG_FIND_FOUND, 1);
+    return SP_RETURN_FOUND;""", storport.name)
+    storport.write_text(s)
+    print("compat: BusTypeUnitControl optional; HwFindAdapter outcome in B2LUFSDIAG")
+
+
 def main():
     src = Path(sys.argv[1])
     header = src / "b2lufs_transport.h"
     transport = src / "b2lufs_transport.c"
     storport = src / "b2lufs_storport.c"
+
+    compat(storport)
+    if len(sys.argv) > 2 and sys.argv[2] == "--compat-only":
+        return
 
     h = header.read_text()
     fields = "".join(f"    ULONG Diag{f};\n" for f in DIAG_FIELDS)

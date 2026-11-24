@@ -30,7 +30,7 @@ printf '%s\r\n' \
   'mode con: cols=96 lines=140 >nul 2>&1' \
   'wpeinit' \
   'mountvol /N >nul 2>&1' \
-  'echo ===== S10e B2LUFS read-only test, run 3 =====' \
+  'echo ===== S10e B2LUFS read-only test, run 4 =====' \
   'pnputil /add-driver X:\b2l\b2lufs.inf /install | find /v "Microsoft PnP"' \
   'pnputil /scan-devices >nul' \
   'ping -n 8 127.0.0.1 >nul' \
