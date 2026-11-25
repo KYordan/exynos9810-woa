@@ -92,24 +92,64 @@ def runs(blocks):
     return out
 
 
+class PartitionInVhdx:
+    """The Windows partition read straight from the VHDX file (tools/s10e/vhdx.py), when it is not attached."""
+
+    def __init__(self, path):
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import vhdx
+        self.v = vhdx.Vhdx(path)
+        parts = [p for p in self.v.partitions() if p[2] == PART_BYTES]
+        if len(parts) != 1:
+            raise SystemExit(f"expected one {PART_BYTES}-byte partition in {path}")
+        self.offset = parts[0][1]
+        if self.v.read(self.offset + 3, 8) != b"NTFS    ":
+            raise SystemExit("the VHDX's Windows partition is not NTFS")
+
+    def blocks(self):
+        """Every MiB of the partition inside an allocated VHDX block (a superset of the used NTFS clusters: Windows
+        allocates a dynamic block on its first write, unallocated blocks read as zeros) plus first and last MiB."""
+        total = PART_BYTES // MIB
+        out = {0, total - 1}
+        for mib in range(total):
+            if self.v.present((self.offset + mib * MIB) // self.v.block_size):
+                out.add(mib)
+        return sorted(out)
+
+    def read(self, start_mib, count):
+        return self.v.read(self.offset + start_mib * MIB, count * MIB)
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--dry-run", action="store_true")
+    p.add_argument("--vhdx", help="read the Windows partition from this VHDX file instead of an attached disk")
     a = p.parse_args()
-    src = find_source()
-    blocks, cluster = used_blocks(src)
+    if a.vhdx:
+        part = PartitionInVhdx(a.vhdx)
+        blocks, src = part.blocks(), f"{a.vhdx} @{part.offset}"
+        read = part.read
+        print(f"source {src}: {len(blocks)} MiB in allocated VHDX blocks", flush=True)
+    else:
+        src = find_source()
+        blocks, cluster = used_blocks(src)
+        dev = open(src, "rb")
+
+        def read(start_mib, count):
+            dev.seek(start_mib * MIB)
+            return dev.read(count * MIB)
+        print(f"source {src}: {len(blocks)} MiB used (cluster {cluster})", flush=True)
     chunks = runs(blocks)
-    print(f"source {src}: {len(blocks)} MiB to write in {len(chunks)} chunks (cluster {cluster})", flush=True)
+    print(f"{len(chunks)} chunks", flush=True)
     if a.dry_run:
         return
     check_target()
     done = 0
-    with open(src, "rb") as f, tempfile.TemporaryDirectory(dir="/mnt/c/Users/Public") as tmp:
+    with tempfile.TemporaryDirectory(dir="/mnt/c/Users/Public") as tmp:
         stage = os.path.join(tmp, "chunk.bin")
         stage_win = subprocess.run(["wslpath", "-w", stage], capture_output=True, text=True).stdout.strip()
         for i, (start, count) in enumerate(chunks, 1):
-            f.seek(start * MIB)
-            data = f.read(count * MIB)
+            data = read(start, count)
             want = hashlib.sha256(data).hexdigest()
             with open(stage, "wb") as s:
                 s.write(data)
