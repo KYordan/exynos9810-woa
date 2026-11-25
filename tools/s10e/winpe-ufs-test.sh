@@ -15,7 +15,8 @@
 # testsigning (element 16000049), without which the test-signed driver would not load. Runs in WSL as a normal
 # user: wimlib-imagex (wimtools) and python3-hivex, no DISM, no administrator.
 set -euo pipefail
-stage=${1:?ESP stage}; drivers=${2:?driver dir}; out=${3:?out dir}; mode=${4:-read}   # read | write
+stage=${1:?ESP stage}; drivers=${2:?driver dir}; out=${3:?out dir}; mode=${4:-read}   # read | write | service
+extra=${5:-}   # service: folder of driver packages (each an .inf + .sys + .cat) to add to the installed Windows
 for f in sources/boot.wim efi/microsoft/boot/bcd; do test -f "$stage/$f" || { echo "missing $stage/$f" >&2; exit 1; }; done
 for f in b2lufs.inf b2lufs.sys b2lufs.cat b2lufs-test.cer; do test -f "$drivers/$f" || { echo "missing $drivers/$f" >&2; exit 1; }; done
 mkdir -p "$out/sources" "$out/efi/microsoft/boot"
@@ -99,11 +100,57 @@ if [[ $mode == write ]]; then
     ':end' \
     'echo ===== done: take a photo, then restart to TWRP =====' > "$work/b2l/b2l-test.cmd"
 fi
+
+if [[ $mode == service ]]; then
+  # Offline servicing of the installed Windows on the phone (no input device there yet): DISM from this WinPE adds
+  # the driver packages under X:\drv to the `windows` partition, after the same partition guard as the write test.
+  # Windows' own NTFS driver mounts it, so a volume left dirty by a forced restart is fine.
+  test -n "$extra" && test -d "$extra" || { echo "service mode needs the driver folder as 5th argument" >&2; exit 1; }
+  mkdir -p "$work/drv"
+  cp -r "$extra"/. "$work/drv/"
+  printf '%s\r\n' 'select disk 0' 'select partition 32' 'detail partition' > "$work/b2l/detail32.txt"
+  printf '%s\r\n' 'select disk 0' 'select partition 32' 'online volume noerr' 'assign letter=W' \
+    > "$work/b2l/format32.txt"
+  printf '%s\r\n' \
+    '@echo off' \
+    'mode con: cols=96 lines=140 >nul 2>&1' \
+    'wpeinit' \
+    'mountvol /N >nul 2>&1' \
+    'echo ===== S10e: add drivers to the installed Windows =====' \
+    'pnputil /add-driver X:\b2l\b2lufs.inf /install >nul' \
+    'pnputil /scan-devices >nul' \
+    'ping -n 8 127.0.0.1 >nul' \
+    'diskpart /s X:\b2l\detail32.txt > X:\b2l\detail32.out' \
+    'find "51760857088" X:\b2l\detail32.out >nul' \
+    'if errorlevel 1 goto guard' \
+    'diskpart /s X:\b2l\format32.txt >nul' \
+    'if not exist W:\Windows\System32\ntoskrnl.exe goto nowin' \
+    'echo W: is the installed Windows' \
+    'dism /Image:W:\ /Add-Driver /Driver:X:\drv /Recurse /ForceUnsigned' \
+    'echo ----- third-party drivers now in the image' \
+    'dism /Image:W:\ /Get-Drivers | find /i "Original File Name"' \
+    'mountvol W: /P' \
+    'echo W: flushed and dismounted' \
+    'goto end' \
+    ':guard' \
+    'echo GUARD FAILED: partition 32 is not the windows partition - nothing changed' \
+    'type X:\b2l\detail32.out' \
+    'goto end' \
+    ':nowin' \
+    'echo NO WINDOWS ON PARTITION 32 - nothing changed' \
+    'mountvol W: /P' \
+    ':end' \
+    'echo ===== done: take a photo, then restart =====' > "$work/b2l/b2l-test.cmd"
+fi
 printf '%s\r\n' '[LaunchApps]' '%SYSTEMROOT%\System32\cmd.exe, /k X:\b2l\b2l-test.cmd' > "$work/winpeshl.ini"
 
 cp "$stage/sources/boot.wim" "$out/sources/boot.wim"
 chmod u+w "$out/sources/boot.wim"   # files copied from an ISO are read-only
 wimlib-imagex update "$out/sources/boot.wim" 2 --command="add $work/b2l /b2l" >/dev/null
+if [[ -d $work/drv ]]; then
+  wimlib-imagex update "$out/sources/boot.wim" 2 --command="add $work/drv /drv" >/dev/null
+  wimlib-imagex dir "$out/sources/boot.wim" 2 --path=/drv
+fi
 wimlib-imagex update "$out/sources/boot.wim" 2 --command="add $work/winpeshl.ini /Windows/System32/winpeshl.ini" >/dev/null
 wimlib-imagex dir "$out/sources/boot.wim" 2 --path=/b2l
 wimlib-imagex dir "$out/sources/boot.wim" 2 --path=/Windows/System32/winpeshl.ini
