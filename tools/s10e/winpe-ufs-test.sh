@@ -127,6 +127,8 @@ if [[ $mode == service ]]; then
     'if not exist W:\Windows\System32\ntoskrnl.exe goto nowin' \
     'echo W: is the installed Windows' \
     'dism /Image:W:\ /Add-Driver /Driver:X:\drv /Recurse /ForceUnsigned' \
+    'if exist X:\drv\b2lufs\b2lufs.sys robocopy X:\drv\b2lufs W:\Windows\System32\drivers b2lufs.sys /B /IS /NJH /NJS /NDL /NFL' \
+    'if exist X:\drv\b2lufs\b2lufs.sys echo boot driver W:\Windows\System32\drivers\b2lufs.sys replaced' \
     'echo ----- third-party drivers now in the image' \
     'dism /Image:W:\ /Get-Drivers | find /i "Original File Name"' \
     'mountvol W: /P' \
