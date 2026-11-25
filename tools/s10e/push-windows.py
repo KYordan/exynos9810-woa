@@ -36,11 +36,11 @@ def adb(*args, data=None, check=True):
 
 
 def find_source():
-    out = subprocess.run(["lsblk", "-b", "-n", "-p", "-o", "NAME,SIZE,TYPE"], capture_output=True, text=True).stdout
+    out = subprocess.run(["lsblk", "-b", "-n", "-l", "-p", "-o", "NAME,SIZE,TYPE"], capture_output=True, text=True).stdout
     hits = [l.split()[0] for l in out.splitlines() if l.split()[1:] == [str(PART_BYTES), "part"]]
     if len(hits) != 1:
         raise SystemExit(f"expected one {PART_BYTES}-byte partition (the attached VHDX), found {hits}")
-    return hits[0].lstrip("`-|")
+    return hits[0]
 
 
 def check_target():
@@ -75,12 +75,15 @@ def used_blocks(src):
     return sorted(blocks), cluster
 
 
+GAP = 16   # MiB of free space a chunk may span: writing unallocated blocks is harmless and saves adb round trips
+
+
 def runs(blocks):
     out, start, prev = [], None, None
     for b in blocks:
         if start is None:
             start = prev = b
-        elif b == prev + 1 and (b - start + 1) * MIB <= CHUNK:
+        elif b - prev <= GAP + 1 and (b - start + 1) * MIB <= CHUNK:
             prev = b
         else:
             out.append((start, prev - start + 1)); start = prev = b

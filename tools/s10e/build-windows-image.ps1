@@ -37,7 +37,7 @@ $ErrorActionPreference = 'Stop'
 $DiskGuid     = '{52444e41-494f-2044-4d4d-43204449534b}'
 $CacheGuid    = '{52444e41-494f-2044-6361-636865000000}'   # sda28 cache = Windows EFI system partition
 $WindowsGuid  = '{cbb880e2-813e-46b6-af31-ffa05f30871c}'   # sda32 windows
-$WindowsBytes = 148783104L * 512                            # 76,180,893,696
+$WindowsBytes = 148783104L * 512                            # 76,176,949,248
 $BootMgrId    = '{9dea862c-5cdd-4e70-acc1-f32b344d4795}'
 
 function Step([string]$Text) { Write-Host "`n==> $Text" -ForegroundColor Cyan }
