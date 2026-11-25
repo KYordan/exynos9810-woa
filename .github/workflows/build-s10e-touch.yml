@@ -29,20 +29,35 @@ jobs:
         shell: pwsh
         run: |
           msbuild drivers/Exynos9810Hsi2c/Exynos9810Hsi2c.vcxproj /p:Configuration=Release /p:Platform=ARM64 `
-            "/p:OutDir=$PWD\out\build\hsi2c\" "/p:IntDir=$PWD\out\build\hsi2c\obj\" /p:SignMode=Off `
-            /p:ApiValidator_Enable=false /p:EnableInfVerif=false /p:RunInfVerif=false /nologo /v:minimal
-          if (-not (Test-Path out/build/hsi2c/Exynos9810Hsi2c.sys)) { exit 1 }
-          if ($LASTEXITCODE -ne 0) { Write-Output "::warning::msbuild exit $LASTEXITCODE after the driver was linked (post-build checks)" }
+            "/p:OutDir=$PWD\out\build\hsi2c\" /p:SignMode=Off `
+            /p:ApiValidator_Enable=false /p:EnableInfVerif=false /p:RunInfVerif=false /nologo /v:minimal `
+            "/flp:logfile=$PWD\out\hsi2c-errors.log;errorsonly"
+          $code = $LASTEXITCODE
+          Get-ChildItem out/build/hsi2c -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object { Write-Output "::notice::built $($_.FullName)" }
+          if (-not (Get-ChildItem out/build/hsi2c -Recurse -Filter Exynos9810Hsi2c.sys -ErrorAction SilentlyContinue)) {
+            Get-Content out/hsi2c-errors.log -ErrorAction SilentlyContinue | Select-Object -First 15 | ForEach-Object { Write-Output "::error::$_" }
+            exit 1
+          }
+          if ($code -ne 0) {
+            Get-Content out/hsi2c-errors.log -ErrorAction SilentlyContinue | Select-Object -First 8 | ForEach-Object { Write-Output "::warning::$_" }
+          }
           exit 0
 
       - name: Build the S6SY761 touch driver (ARM64)
         shell: pwsh
         run: |
           msbuild drivers/S6SY761Touch/S6SY761Touch.vcxproj /p:Configuration=Release /p:Platform=ARM64 `
-            "/p:OutDir=$PWD\out\build\touch\" "/p:IntDir=$PWD\out\build\touch\obj\" /p:SignMode=Off `
-            /p:ApiValidator_Enable=false /p:EnableInfVerif=false /p:RunInfVerif=false /nologo /v:minimal
-          if (-not (Test-Path out/build/touch/S6SY761Touch.sys)) { exit 1 }
-          if ($LASTEXITCODE -ne 0) { Write-Output "::warning::msbuild exit $LASTEXITCODE after the driver was linked (post-build checks)" }
+            "/p:OutDir=$PWD\out\build\touch\" /p:SignMode=Off `
+            /p:ApiValidator_Enable=false /p:EnableInfVerif=false /p:RunInfVerif=false /nologo /v:minimal `
+            "/flp:logfile=$PWD\out\touch-errors.log;errorsonly"
+          $code = $LASTEXITCODE
+          if (-not (Get-ChildItem out/build/touch -Recurse -Filter S6SY761Touch.sys -ErrorAction SilentlyContinue)) {
+            Get-Content out/touch-errors.log -ErrorAction SilentlyContinue | Select-Object -First 15 | ForEach-Object { Write-Output "::error::$_" }
+            exit 1
+          }
+          if ($code -ne 0) {
+            Get-Content out/touch-errors.log -ErrorAction SilentlyContinue | Select-Object -First 8 | ForEach-Object { Write-Output "::warning::$_" }
+          }
           exit 0
 
       - name: Packages, catalogs, test signature
@@ -51,7 +66,7 @@ jobs:
           New-Item -ItemType Directory -Force out/pkg/hsi2c, out/pkg/touch | Out-Null
           $hsi2cInf = Get-ChildItem out/build/hsi2c, drivers/Exynos9810Hsi2c -Recurse -Filter Exynos9810Hsi2c.inf |
             Select-Object -First 1
-          $hsi2cSys = Get-ChildItem out/build/hsi2c -Recurse -Filter Exynos9810Hsi2c.sys | Select-Object -First 1
+          $hsi2cSys = Get-ChildItem out/build/hsi2c -Recurse -Filter Exynos9810Hsi2c.sys | Where-Object FullName -notmatch '\\obj\\' | Select-Object -First 1
           $touchSys = Get-ChildItem out/build/touch -Recurse -Filter S6SY761Touch.sys | Select-Object -First 1
           if (-not $hsi2cInf -or -not $hsi2cSys -or -not $touchSys) { Get-ChildItem out/build -Recurse | Out-Host; exit 1 }
           Copy-Item $hsi2cInf.FullName, $hsi2cSys.FullName out/pkg/hsi2c/
