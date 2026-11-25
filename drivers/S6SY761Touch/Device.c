@@ -1284,14 +1284,14 @@ TouchConfigureInterrupt(
 
 	TouchSetInterruptMasked(Device, TRUE);
 
-	value = TouchReadRegister(Device, STAR2_GPA1_CON);
+	value = TouchReadRegister(Device, Device->Gpa1ConOffset);
 	value &= ~STAR2_GPA1_0_FUNCTION_MASK;
 	value |= STAR2_GPA1_0_EINT_FUNCTION;
-	TouchWriteRegister(Device, STAR2_GPA1_CON, value);
+	TouchWriteRegister(Device, Device->Gpa1ConOffset, value);
 
-	value = TouchReadRegister(Device, STAR2_GPA1_PUD);
+	value = TouchReadRegister(Device, Device->Gpa1PudOffset);
 	value &= ~STAR2_GPA1_0_PULL_MASK;
-	TouchWriteRegister(Device, STAR2_GPA1_PUD, value);
+	TouchWriteRegister(Device, Device->Gpa1PudOffset, value);
 
 	value = TouchReadRegister(Device, STAR2_EINT_CON);
 	value &= ~STAR2_EINT8_TRIGGER_MASK;
@@ -1402,14 +1402,29 @@ OnPrepareHardware(
 
 		case CmResourceTypeMemory:
 
-			if ((ULONGLONG)pDescriptor->u.Memory.Start.QuadPart ==
-				STAR2_ALIVE_GPIO_PHYSICAL_ADDRESS)
+			if (((ULONGLONG)pDescriptor->u.Memory.Start.QuadPart ==
+				 STAR2_ALIVE_GPIO_PHYSICAL_ADDRESS) ||
+				((ULONGLONG)pDescriptor->u.Memory.Start.QuadPart ==
+				 BEYOND0_ALIVE_GPIO_PHYSICAL_ADDRESS))
 			{
 				if (fAliveResourceFound)
 				{
 					return STATUS_DEVICE_CONFIGURATION_ERROR;
 				}
 
+				if ((ULONGLONG)pDescriptor->u.Memory.Start.QuadPart ==
+					BEYOND0_ALIVE_GPIO_PHYSICAL_ADDRESS)
+				{
+					pDevice->Gpa1ConOffset = BEYOND0_GPA1_CON;
+					pDevice->Gpa1PudOffset = BEYOND0_GPA1_PUD;
+					pDevice->GloveMode = TRUE;
+				}
+				else
+				{
+					pDevice->Gpa1ConOffset = STAR2_GPA1_CON;
+					pDevice->Gpa1PudOffset = STAR2_GPA1_PUD;
+					pDevice->GloveMode = FALSE;
+				}
 				alivePhysicalAddress = pDescriptor->u.Memory.Start;
 				aliveLength = pDescriptor->u.Memory.Length;
 				fAliveResourceFound = TRUE;
@@ -2929,6 +2944,17 @@ SpbDeviceOpen(
 		return status;
 	}
 	RecordStartValues(pDevice->Device, 32, STATUS_SUCCESS);
+
+	if (pDevice->GloveMode)
+	{
+		//
+		// S10e: touch functions with GLOVE before sensing starts, the order the iOS port uses (B2LInput.cpp).
+		// A failure only leaves the IC's default functions; it does not stop the touchscreen.
+		//
+		BYTE touchFunctions[3] = { S6SY761_SET_TOUCHFUNCTION, S6SY761_TOUCHFUNCTION_GLOVE, 0x00 };
+		NTSTATUS gloveStatus = SpbDeviceWrite(pDevice, touchFunctions, sizeof(touchFunctions));
+		RecordStartValue(pDevice->Device, L"TouchGloveStatus", (ULONG)gloveStatus);
+	}
 
 	status = SpbDeviceWrite(
 		pDevice,

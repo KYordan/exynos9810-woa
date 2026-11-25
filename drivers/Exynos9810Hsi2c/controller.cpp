@@ -434,7 +434,8 @@ ControllerInitialize(
 {
     NTSTATUS status;
 
-    status = ControllerConfigurePlatform(Device);
+    // S10e: clocks, USI mode and pins were set by the UEFI (9820 addresses); only the controller is ours.
+    status = Device->FirmwareConfigured ? STATUS_SUCCESS : ControllerConfigurePlatform(Device);
     if (!NT_SUCCESS(status))
     {
         Trace(

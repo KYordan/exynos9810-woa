@@ -21,6 +21,7 @@ Exynos9810Hsi2c.sys=1
 
 [Models.NT$ARCH$.10.0...16299]
 %DeviceDescription%=Device_Install,ACPI\SAMS9810
+%DeviceDescription9820%=Device_Install,ACPI\SAMS9820
 
 [Device_Install.NT]
 CopyFiles=Driver_CopyFiles
@@ -50,4 +51,5 @@ ProviderName="Exynos9810 WOA Project"
 ManufacturerName="Samsung Electronics"
 DiskName="Exynos9810 HSI2C Controller Installation Disk"
 DeviceDescription="Samsung Exynos 9810 HSI2C10 Controller"
+DeviceDescription9820="Samsung Exynos 9820 HSI2C (touch bus, Galaxy S10e)"
 ServiceDescription="Samsung Exynos 9810 HSI2C Controller Driver"

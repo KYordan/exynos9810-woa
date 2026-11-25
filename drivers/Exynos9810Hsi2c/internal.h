@@ -152,6 +152,13 @@ struct _PBC_DEVICE {
 
     ULONG ActiveBusSpeed;
     BOOLEAN Powered;
+
+    //
+    // Galaxy S10e (Exynos 9820): the ACPI node lists only the HSI2C window. The UEFI's touch driver has already
+    // powered the panel, put the USI in I2C mode and opened its clocks and pins (9820 addresses, not the 9810
+    // ones below), so the driver leaves CMU, SYSREG and GPIO alone and only resets and runs the controller.
+    //
+    BOOLEAN FirmwareConfigured;
 };
 
 struct _PBC_TARGET {

@@ -588,13 +588,19 @@ OnPrepareHardware(
         }
     }
 
+    //
+    // Galaxy S9+ (Exynos 9810): HSI2C, CMU, SYSREG and GPIO windows. Galaxy S10e (Exynos 9820): the HSI2C window
+    // alone, the firmware having configured the rest (see PBC_DEVICE::FirmwareConfigured).
+    //
+    device->FirmwareConfigured = (memoryCount == 1);
     if (NT_SUCCESS(status) &&
-        ((memoryCount != 4) ||
-         (interruptCount != 1) ||
+        ((interruptCount != 1) ||
          (device->Hsi2c.VirtualAddress == NULL) ||
-         (device->Cmu.VirtualAddress == NULL) ||
-         (device->Sysreg.VirtualAddress == NULL) ||
-         (device->Gpio.VirtualAddress == NULL)))
+         (!device->FirmwareConfigured &&
+          ((memoryCount != 4) ||
+           (device->Cmu.VirtualAddress == NULL) ||
+           (device->Sysreg.VirtualAddress == NULL) ||
+           (device->Gpio.VirtualAddress == NULL)))))
     {
         status = STATUS_DEVICE_CONFIGURATION_ERROR;
     }

@@ -1,0 +1,57 @@
+name: S10e touch drivers (HSI2C + S6SY761)
+
+# Galaxy S10e (Exynos 9820) touchscreen under Windows: the HSI2C SpbCx controller driver (ACPI\SAMS9820: HSI2C
+# window only, the UEFI's B2LTouchDxe has set clocks, USI mode and pins) and the S6SY761 HID driver (ALIVE GPIO at
+# 0x15850000, GPA1 at 0x020, touch functions with GLOVE). Both are this repository's code; the artifact is plain.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [s10e]
+    paths:
+      - 'drivers/Exynos9810Hsi2c/**'
+      - 'drivers/S6SY761Touch/**'
+      - 'drivers/sign-test-packages.ps1'
+      - '.github/workflows/build-s10e-touch.yml'
+
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Build the HSI2C controller driver (ARM64)
+        shell: pwsh
+        run: |
+          msbuild drivers/Exynos9810Hsi2c/Exynos9810Hsi2c.vcxproj /p:Configuration=Release /p:Platform=ARM64 `
+            "/p:OutDir=$PWD\out\build\hsi2c\" /p:SignMode=Off /nologo /v:minimal
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: Build the S6SY761 touch driver (ARM64)
+        shell: pwsh
+        run: |
+          msbuild drivers/S6SY761Touch/S6SY761Touch.vcxproj /p:Configuration=Release /p:Platform=ARM64 `
+            "/p:OutDir=$PWD\out\build\touch\" /p:SignMode=Off /nologo /v:minimal
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: Packages, catalogs, test signature
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force out/pkg/hsi2c, out/pkg/touch | Out-Null
+          $hsi2cInf = Get-ChildItem out/build/hsi2c -Recurse -Filter Exynos9810Hsi2c.inf | Select-Object -First 1
+          $hsi2cSys = Get-ChildItem out/build/hsi2c -Recurse -Filter Exynos9810Hsi2c.sys | Select-Object -First 1
+          $touchSys = Get-ChildItem out/build/touch -Recurse -Filter S6SY761Touch.sys | Select-Object -First 1
+          if (-not $hsi2cInf -or -not $hsi2cSys -or -not $touchSys) { Get-ChildItem out/build -Recurse | Out-Host; exit 1 }
+          Copy-Item $hsi2cInf.FullName, $hsi2cSys.FullName out/pkg/hsi2c/
+          Copy-Item $touchSys.FullName, drivers/S6SY761Touch/S6SY761Touch.inf out/pkg/touch/
+          ./drivers/sign-test-packages.ps1 -Packages out/pkg/hsi2c, out/pkg/touch
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: s10e-touch-${{ github.run_number }}
+          path: out/pkg
+          if-no-files-found: error
+          retention-days: 30

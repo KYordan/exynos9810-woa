@@ -37,6 +37,14 @@ Environment:
 #include "reshub.h"
 
 #define STAR2_ALIVE_GPIO_PHYSICAL_ADDRESS  0x14050000ULL
+// Galaxy S10e (beyond0lte, Exynos 9820): ALIVE pinctrl@15850000, banks from 0x000 (gpa0), touch IRQ gpa1-0 =
+// wakeup EINT on GIC SPI 13 (GSIV 45), level low (stock DT sec,irq_type 0x2008).
+#define BEYOND0_ALIVE_GPIO_PHYSICAL_ADDRESS 0x15850000ULL
+#define BEYOND0_GPA1_CON                   0x020UL
+#define BEYOND0_GPA1_PUD                   0x028UL
+// sec_ts SET_TOUCHFUNCTION (0x30), 16 bits little-endian: TOUCH|PALM|WET (0x61) + GLOVE (bit 3) = 0x69.
+#define S6SY761_SET_TOUCHFUNCTION          0x30
+#define S6SY761_TOUCHFUNCTION_GLOVE        0x69
 #define STAR2_ALIVE_GPIO_LENGTH            0x00001000UL
 
 #define STAR2_GPA1_CON                     0x040UL
@@ -116,6 +124,11 @@ typedef struct _DEVICE_CONTEXT
     WDFIOTARGET             SpbController;
     PUCHAR                  AliveRegisters;
     ULONG                   AliveRegistersLength;
+    // GPA1 bank registers: 0x040/0x048 on the Exynos 9810 (S9+), 0x020/0x028 on the 9820 (S10e). EINT ones match.
+    ULONG                   Gpa1ConOffset;
+    ULONG                   Gpa1PudOffset;
+    // Galaxy S10e: sec_ts touch functions with GLOVE (screen protectors), as Samsung's "Touch sensitivity".
+    BOOLEAN                 GloveMode;
     WDFWAITLOCK             InputLock;
     S6SY761_CONTACT_STATE   Contacts[S6SY761_MAX_CONTACTS];
     inputReport54_t         InputReports[S6SY761_INPUT_REPORT_QUEUE_DEPTH];
