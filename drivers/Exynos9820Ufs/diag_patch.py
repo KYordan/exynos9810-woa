@@ -31,6 +31,24 @@ def replace(text, old, new, name):
     return text.replace(old, new)
 
 
+def esp_view(transport):
+    """First boot of the installed Windows (2026-11-25) stopped in Sysprep specialize: "BCD: Failed to get system
+    partition. Status: c0000452". Upstream's Windows GPT view retypes CACHE as Microsoft Basic Data (so WinPE can mount
+    it); Windows finds its system partition only by the EFI System type, and CACHE is the dual boot's ESP. The view
+    now types it as EFI System (C12A7328-F81F-11D2-BA4B-00A0C93EC93B). The media's GPT is still never written."""
+    t = transport.read_text()
+    t = replace(t, """    static const UCHAR BasicDataGuid[16] = {
+        0xA2U, 0xA0U, 0xD0U, 0xEBU, 0xE5U, 0xB9U, 0x33U, 0x44U,
+        0x87U, 0xC0U, 0x68U, 0xB6U, 0xB7U, 0x26U, 0x99U, 0xC7U
+    };""", """    /* S10e dual boot: CACHE is the Windows ESP, so the view types it EFI System (diag_patch.py esp_view). */
+    static const UCHAR BasicDataGuid[16] = {
+        0x28U, 0x73U, 0x2AU, 0xC1U, 0x1FU, 0xF8U, 0xD2U, 0x11U,
+        0xBAU, 0x4BU, 0x00U, 0xA0U, 0xC9U, 0x3EU, 0xC9U, 0x3BU
+    };""", transport.name)
+    transport.write_text(t)
+    print("esp_view: CACHE typed EFI System in the Windows GPT view")
+
+
 def compat(storport):
     """Run 3 (diagnostic build) still failed with 0xC00000C2 and wrote no start snapshot, so HwFindAdapter itself
     refused. Its first step is StorPortSetFeatureList(StorportFeatureBusTypeUnitControl), a StorPort feature of
@@ -94,6 +112,7 @@ def main():
     storport = src / "b2lufs_storport.c"
 
     compat(storport)
+    esp_view(transport)
     if len(sys.argv) > 2 and sys.argv[2] == "--compat-only":
         return
 
